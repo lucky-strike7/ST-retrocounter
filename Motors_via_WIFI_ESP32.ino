@@ -5,6 +5,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <math.h>
+#include <time.h>
 #include <FS.h>
 #include <LittleFS.h>
 #include <SPIFFS.h>
@@ -163,6 +164,48 @@ unsigned long lastYoutubePollMs = 0;
 long lastSubscriberCount = -1;
 long currentSubscriberCount = -1;
 String youtubeStatus = "YouTube: ожидание первого запроса";
+time_t lastYoutubeSuccessEpoch = 0;
+
+// Текущее движение (для UI: вращение риски)
+static long g_activeMoveSteps = 0;
+static float g_activeDigitCount = 0.0f;
+
+static long computeDigitMoveSteps(float digitCountF);
+
+static void syncTimeNtp() {
+  configTime(3 * 3600, 0, "pool.ntp.org", "time.google.com");
+  struct tm ti;
+  int n = 0;
+  while (n < 40 && !getLocalTime(&ti)) {
+    delay(250);
+    n++;
+  }
+  if (n < 40) {
+    Serial.println("[NTP] Время синхронизировано.");
+  } else {
+    Serial.println("[NTP] Не удалось получить время (проверьте сеть).");
+  }
+}
+
+static long computeActiveStepsForApi() {
+  if (motorsBusy) return g_activeMoveSteps;
+  if (pendingCommand == CMD_DIGIT_MOVE) {
+    return computeDigitMoveSteps(queuedDigitCountFloat);
+  }
+  if (pendingCommand == CMD_ROTATE_SELECTED && queuedCommand.useCounter) {
+    return queuedCommand.steps;
+  }
+  return 0;
+}
+
+static float activeDigitsForApi() {
+  if (motorsBusy) return g_activeDigitCount;
+  if (pendingCommand == CMD_DIGIT_MOVE) return queuedDigitCountFloat;
+  if (pendingCommand == CMD_ROTATE_SELECTED && queuedCommand.useCounter) {
+    return (float)queuedCommand.steps / (float)max(1, stepsPerDigit);
+  }
+  return 0.0f;
+}
 
 // =========================
 // СОХРАНЕНИЕ / ЗАГРУЗКА
@@ -316,6 +359,7 @@ void rotateDiskOnly(long steps) {
   if (steps == 0) return;
 
   motorsBusy = true;
+  g_activeMoveSteps = 0;
 
   String dirText = (steps >= 0) ? "вперед" : "назад";
   long totalSteps = labs(steps);
@@ -348,6 +392,8 @@ void rotateDiskOnly(long steps) {
   recordLastMove(0.0f, steps);
 
   motorsBusy = false;
+  g_activeMoveSteps = 0;
+  g_activeDigitCount = 0.0f;
 }
 
 // Счетчик ведущий, диск ведомый: 1 шаг диска на каждые 4 шага счетчика
@@ -355,6 +401,7 @@ void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
   if (counterSteps == 0) return;
 
   motorsBusy = true;
+  g_activeMoveSteps = counterSteps;
 
   String dirText = (counterSteps >= 0) ? "вперед" : "назад";
   long totalCounterSteps = labs(counterSteps);
@@ -399,9 +446,13 @@ void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
   Serial.println(statusText);
 
   motorsBusy = false;
+  g_activeMoveSteps = 0;
+  g_activeDigitCount = 0.0f;
 }
 
 void rotateCounterDigit(long steps, float digitCountDisplay) {
+  g_activeDigitCount = digitCountDisplay;
+
   String dirText = (steps >= 0) ? "вперед" : "назад";
 
   statusText = "Команда выполняется: сдвиг счетчика.\n";
@@ -503,6 +554,11 @@ void processYoutubeUpdate(bool forceNow = false) {
     return;
   }
 
+  time_t wallNow = time(nullptr);
+  if (wallNow > 1700000000) {
+    lastYoutubeSuccessEpoch = wallNow;
+  }
+
   currentSubscriberCount = newCount;
   youtubeStatus = "YouTube: получено значение " + String(newCount);
   Serial.println(youtubeStatus);
@@ -527,6 +583,7 @@ void processYoutubeUpdate(bool forceNow = false) {
   statusText += "Разница: " + String(diff) + "\n";
   statusText += "Прокрутка шагов: " + String(steps);
 
+  g_activeDigitCount = (float)diff;
   rotateCounterWithOptionalDisk(steps, uiSelection.disk);
 
   recordLastMove((float)diff, steps);
@@ -598,6 +655,19 @@ void handleApiState() {
   doc["statusLine"] = statusText;
   doc["lastDigits"] = g_lastMoveDigits;
   doc["lastSteps"] = g_lastMoveSteps;
+  doc["activeSteps"] = computeActiveStepsForApi();
+  doc["activeDigits"] = activeDigitsForApi();
+  if (lastYoutubeSuccessEpoch > 1700000000) {
+    struct tm* tinfo = localtime(&lastYoutubeSuccessEpoch);
+    char tbuf[16];
+    if (tinfo && strftime(tbuf, sizeof(tbuf), "%H:%M:%S", tinfo) > 0) {
+      doc["lastYoutubeTime"] = tbuf;
+    } else {
+      doc["lastYoutubeTime"] = "";
+    }
+  } else {
+    doc["lastYoutubeTime"] = "";
+  }
 
   String json;
   serializeJson(doc, json);
@@ -773,6 +843,8 @@ void setup() {
   Serial.print("IP адрес: ");
   Serial.println(WiFi.localIP());
 
+  syncTimeNtp();
+
   statusText = "Wi-Fi подключен. Веб-интерфейс готов.";
 
   g_dataFs = 0;
@@ -820,6 +892,7 @@ void loop() {
 
     if (cmd == CMD_ROTATE_SELECTED) {
       if (queuedCommand.useCounter) {
+        g_activeDigitCount = (float)queuedCommand.steps / (float)max(1, stepsPerDigit);
         rotateCounterWithOptionalDisk(queuedCommand.steps, queuedCommand.useDisk);
         recordLastMove((float)queuedCommand.steps / (float)max(1, stepsPerDigit), queuedCommand.steps);
       } else if (queuedCommand.useDisk) {

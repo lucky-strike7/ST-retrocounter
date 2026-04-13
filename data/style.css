@@ -21,9 +21,9 @@ html {
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: #000;
   color: var(--text);
-  font-family: Arial, sans-serif;
+  font-family: var(--font-mono);
   height: 100%;
   min-height: 100%;
   min-height: -webkit-fill-available;
@@ -42,10 +42,12 @@ body {
   width: min(100vw, 430px);
   height: 100%;
   max-height: 100%;
-  padding: 22px 18px max(36px, env(safe-area-inset-bottom, 0px));
-  background: var(--bg);
+  padding: 22px 18px max(28px, env(safe-area-inset-bottom, 0px));
+  background: #000;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .topbar {
@@ -56,17 +58,75 @@ body {
   margin-bottom: 22px;
   font-family: var(--font-mono);
   font-weight: 700;
+  color: #534335;
+}
+
+.topbar .metric-btn,
+.topbar .center-value {
+  color: #534335;
+}
+
+.topbar .icon-btn {
+  color: #534335;
+}
+
+.topbar .icon-btn:not(.inactive) .icon-counter {
+  background: #534335;
+  border-color: #534335;
+}
+
+.topbar .icon-btn:not(.inactive) .icon-counter-bar {
+  background: #000;
+}
+
+.topbar .icon-btn.inactive .icon-counter {
+  background: transparent;
+  border-color: #534335;
+}
+
+.topbar .icon-btn.inactive .icon-counter-bar {
+  background: #534335;
+}
+
+.topbar .icon-disk {
+  border-color: #534335;
+}
+
+.topbar .icon-btn:not(.inactive) .icon-disk {
+  background: #534335;
+  border-color: #534335;
+}
+
+.topbar .icon-btn:not(.inactive) .icon-disk::after {
+  background: #000;
+}
+
+.topbar .icon-btn.inactive .icon-disk {
+  background: transparent;
+}
+
+.topbar .icon-btn.inactive .icon-disk::after {
+  background: #534335;
+}
+
+.main-cluster {
+  margin-top: -7px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .top-side {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 6px;
   min-width: 0;
 }
 
 .top-side.right {
   justify-content: flex-end;
+  gap: 6px;
 }
 
 .metric-btn, .center-value {
@@ -184,37 +244,131 @@ body {
   background: var(--accent);
 }
 
-.status-panel {
-  background: #000;
-  border: 2px solid var(--accent);
-  border-radius: 100px;
-  min-height: 210px;
-  padding: 26px 24px;
+.dial-panel {
+  flex: 1 1 auto;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 28px;
-  box-shadow: none;
-  font-family: var(--font-mono);
-  font-weight: 700;
+  min-height: 0;
+  margin-bottom: 12px;
 }
 
-.status-text {
-  width: 100%;
+.dial {
+  position: relative;
+  width: min(94.6vw, 350px);
+  height: min(94.6vw, 350px);
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+.dial-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: transparent;
+  z-index: 0;
+}
+
+.dial-tick-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  transform: rotate(0deg);
+  transform-origin: 50% 50%;
+  transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.dial-tick {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 5px;
+  height: 16px;
+  margin-left: -2.5px;
+  background: var(--accent);
+  border-radius: 0 0 2px 2px;
+  display: block;
+}
+
+.dial-inner {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   text-align: center;
-  white-space: pre-line;
-  font-size: 18px;
-  line-height: 1.45;
-  letter-spacing: 0;
-  font-family: inherit;
-  font-weight: inherit;
+  z-index: 2;
+}
+
+.dial-subs {
+  position: absolute;
+  left: 50%;
+  top: 25%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(38px, 11.5vw, 56px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
   color: var(--accent);
+  margin: 0;
+  width: 100%;
+  max-width: 92%;
+}
+
+.dial-hub {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.dial-lines {
+  position: absolute;
+  left: 50%;
+  top: 75%;
+  transform: translate(-50%, -50%);
+  width: 92%;
+  max-width: 300px;
+  margin: 0;
+}
+
+.dial-line1,
+.dial-line2 {
+  font-size: clamp(13px, 3.6vw, 16px);
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--accent);
+  min-height: 1.35em;
+}
+
+.dial-line2 {
+  margin-top: 2px;
+}
+
+.footer-yt {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.06em;
+  color: #534335;
+  padding: 18px 0 4px;
+  flex-shrink: 0;
 }
 
 .stepper-wrap {
   position: relative;
-  margin-bottom: 30px;
+  margin-bottom: 22px;
   padding-top: 4px;
+  flex-shrink: 0;
 }
 
 .steps-row {
@@ -235,9 +389,13 @@ body {
   border-radius: 50%;
   background: var(--accent);
   transform: translate(-50%, -50%);
-  transition: left 220ms ease;
+  transition: left 220ms ease, opacity 200ms ease;
   z-index: 0;
   pointer-events: none;
+}
+
+.app.app--busy .step-highlight {
+  opacity: 0.45;
 }
 
 .step-option {
@@ -260,10 +418,11 @@ body {
 
 .main-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(170px, 1fr));
+  grid-template-columns: repeat(2, minmax(153px, 1fr));
   gap: 18px;
   align-items: center;
   justify-items: center;
+  flex-shrink: 0;
 }
 
 .big-btn {
@@ -272,18 +431,18 @@ body {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  width: 170px;
-  height: 170px;
-  min-width: 170px;
-  min-height: 170px;
-  max-width: 170px;
-  max-height: 170px;
+  width: 153px;
+  height: 153px;
+  min-width: 153px;
+  min-height: 153px;
+  max-width: 153px;
+  max-height: 153px;
   aspect-ratio: 1;
   border-radius: 50%;
   border: 4px solid var(--accent);
   background: transparent;
   color: var(--text);
-  font-size: 68px;
+  font-size: 61px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -296,10 +455,22 @@ body {
   overflow: hidden;
 }
 
-.big-btn.minus,
 .big-btn.plus {
   background: var(--accent);
   color: #000;
+  border-color: var(--accent);
+}
+
+.big-btn.minus {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.big-btn-glyph {
+  display: block;
+  line-height: 1;
+  transform: translateY(-4px);
 }
 
 .big-btn:disabled,

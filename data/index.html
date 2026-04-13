@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no" />
-  <title>Retro Counter Mobile</title>
+  <title>Retro Counter</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
+  <div class="app" id="app">
     <div class="topbar">
       <div class="top-side left">
-        <button class="icon-btn" id="counterIconBtn" aria-label="Счетчик">
+        <button class="icon-btn" id="counterIconBtn" type="button" aria-label="Счетчик">
           <span class="icon-counter" aria-hidden="true">
             <span class="icon-counter-bar"></span>
             <span class="icon-counter-bar"></span>
@@ -18,37 +18,54 @@
             <span class="icon-counter-bar"></span>
           </span>
         </button>
-        <button class="metric-btn" id="counterRpmBtn">16</button>
+        <button class="metric-btn" id="counterRpmBtn" type="button">16</button>
       </div>
 
-      <button class="center-value" id="stepsPerDigitBtn">6600</button>
+      <button class="center-value" id="stepsPerDigitBtn" type="button">6600</button>
 
       <div class="top-side right">
-        <button class="metric-btn" id="diskRpmBtn">5</button>
-        <button class="icon-btn inactive" id="diskIconBtn" aria-label="Диск">
+        <button class="metric-btn" id="diskRpmBtn" type="button">5</button>
+        <button class="icon-btn inactive" id="diskIconBtn" type="button" aria-label="Диск">
           <span class="icon-disk"></span>
         </button>
       </div>
     </div>
 
-    <div class="status-panel">
-      <div class="status-text" id="statusText">Загрузка…</div>
+    <div class="main-cluster">
+    <div class="dial-panel">
+      <div class="dial" id="dial">
+        <div class="dial-ring" aria-hidden="true"></div>
+        <div class="dial-tick-layer" id="dialTickLayer">
+          <span class="dial-tick" id="dialTick"></span>
+        </div>
+        <div class="dial-inner">
+          <div class="dial-subs" id="dialSubs">—</div>
+          <div class="dial-hub" aria-hidden="true"></div>
+          <div class="dial-lines">
+            <div class="dial-line1" id="dialLine1"></div>
+            <div class="dial-line2" id="dialLine2"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="stepper-wrap">
       <div class="steps-row" id="stepsRow">
         <div class="step-highlight" id="stepHighlight"></div>
-        <button class="step-option" data-step="0.1">1/10</button>
-        <button class="step-option" data-step="0.25">1/4</button>
-        <button class="step-option active" data-step="1">1</button>
-        <button class="step-option" data-step="10">10</button>
+        <button type="button" class="step-option" data-step="0.1">1/10</button>
+        <button type="button" class="step-option" data-step="0.25">1/4</button>
+        <button type="button" class="step-option active" data-step="1">1</button>
+        <button type="button" class="step-option" data-step="10">10</button>
       </div>
     </div>
 
     <div class="main-controls">
-      <button class="big-btn minus" id="minusBtn">−</button>
-      <button class="big-btn plus" id="plusBtn">+</button>
+      <button type="button" class="big-btn minus" id="minusBtn"><span class="big-btn-glyph" aria-hidden="true">−</span></button>
+      <button type="button" class="big-btn plus" id="plusBtn"><span class="big-btn-glyph" aria-hidden="true">+</span></button>
     </div>
+    </div>
+
+    <div class="footer-yt" id="youtubeTime" title="Время последнего успешного запроса к YouTube">—</div>
   </div>
 
   <div class="sheet-backdrop" id="sheetBackdrop"></div>
@@ -58,8 +75,8 @@
       <div class="sheet-title" id="sheetTitle">Изменить значение</div>
       <input class="sheet-input" id="sheetInput" type="number" inputmode="numeric" />
       <div class="sheet-actions">
-        <button class="sheet-btn cancel" id="cancelSheetBtn">Отмена</button>
-        <button class="sheet-btn confirm" id="confirmSheetBtn">Применить</button>
+        <button type="button" class="sheet-btn cancel" id="cancelSheetBtn">Отмена</button>
+        <button type="button" class="sheet-btn confirm" id="confirmSheetBtn">Применить</button>
       </div>
     </div>
   </div>
