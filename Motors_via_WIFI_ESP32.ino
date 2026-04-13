@@ -29,18 +29,17 @@ int motorDiskSpeedRPM = 10;
 int motorCounterSpeedRPM = 10;
 int stepsPerDigit = 7000;
 
+// Ведомый диск: 1 шаг диска на каждые 4 шага счетчика
+const int diskFollowRatio = 4;
+
 // =========================
 // ПИНЫ
 // =========================
-// Мотор диска
 const int diskPins[4] = {5, 18, 19, 21};
-
-// Мотор счетчика
 const int counterPins[4] = {14, 27, 26, 25};
 
 // =========================
 // УПРАВЛЕНИЕ МОТОРАМИ
-// Full-step последовательность под 28BYJ-48
 // =========================
 class Simple28BYJ {
 public:
@@ -56,6 +55,7 @@ public:
       pinMode(pins[i], OUTPUT);
       digitalWrite(pins[i], LOW);
     }
+
     phaseIndex = 0;
     setSpeedRPM(10);
     release();
@@ -63,7 +63,6 @@ public:
 
   void setSpeedRPM(int rpmValue) {
     rpm = max(1, rpmValue);
-    // Интервал одного шага в микросекундах
     stepIntervalUs = (60.0f * 1000000.0f) / ((float)rpm * (float)max(1, stepsPerRevolution));
   }
 
@@ -90,14 +89,9 @@ private:
   int pins[4] = {0, 0, 0, 0};
   int phaseIndex = 0;
   int rpm = 10;
-  float stepIntervalUs = 0;
+  float stepIntervalUs = 0.0f;
 
   void applyPhase(int idx) {
-    // Full-step
-    // 0: 1000
-    // 1: 0100
-    // 2: 0010
-    // 3: 0001
     digitalWrite(pins[0], idx == 0 ? HIGH : LOW);
     digitalWrite(pins[1], idx == 1 ? HIGH : LOW);
     digitalWrite(pins[2], idx == 2 ? HIGH : LOW);
@@ -109,7 +103,7 @@ Simple28BYJ motorDisk;
 Simple28BYJ motorCounter;
 
 // =========================
-// WEB SERVER / PREFS
+// WEB / PREFS
 // =========================
 WebServer server(80);
 Preferences prefs;
@@ -264,9 +258,12 @@ String htmlPage() {
       cursor: not-allowed;
     }
     .save { background: #6a1b9a; }
-    .forward { background: #2e7d32; }
-    .backward { background: #1565c0; }
-    .digit { background: #ef6c00; }
+    .forward, .pos { background: #2e7d32; }
+    .backward, .neg { background: #ef6c00; }
+    .large-btn {
+      font-size: 24px;
+      padding: 18px 20px;
+    }
     .status-box {
       background: #111;
       color: #0f0;
@@ -339,53 +336,41 @@ String htmlPage() {
       <button class="save" onclick="pollYoutubeNow()">Обновить YouTube сейчас</button>
     </div>
 
-    <div class="small">Чекбоксы влияют на кнопки прокрутки оборотами. Кнопки по цифрам крутят только мотор счетчика.</div>
-  </div>
-
-  <div class="card">
-    <h2>Прокрутка выбранных моторов</h2>
-    <div class="buttons">
-      <button class="forward" onclick="rotateTurns(10)">Вперед 10 оборотов</button>
-      <button class="backward" onclick="rotateTurns(-10)">Назад 10 оборотов</button>
-
-      <button class="forward" onclick="rotateTurns(5)">Вперед 5 оборотов</button>
-      <button class="backward" onclick="rotateTurns(-5)">Назад 5 оборотов</button>
-
-      <button class="forward" onclick="rotateTurns(1)">Вперед 1 оборот</button>
-      <button class="backward" onclick="rotateTurns(-1)">Назад 1 оборот</button>
-
-      <button class="forward" onclick="rotateTurns(0.5)">Вперед 1/2 оборота</button>
-      <button class="backward" onclick="rotateTurns(-0.5)">Назад 1/2 оборота</button>
-
-      <button class="forward" onclick="rotateTurns(0.25)">Вперед 1/4 оборота</button>
-      <button class="backward" onclick="rotateTurns(-0.25)">Назад 1/4 оборота</button>
-
-      <button class="forward" onclick="rotateTurns(0.1)">Вперед 1/10 оборота</button>
-      <button class="backward" onclick="rotateTurns(-0.1)">Назад 1/10 оборота</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Прокрутка счетчика по цифрам</h2>
-    <div class="buttons">
-      <button class="digit" onclick="digitMove(1)">+1 цифра</button>
-      <button class="digit" onclick="digitMove(-1)">-1 цифра</button>
-
-      <button class="digit" onclick="digitMove(3)">+3 цифры</button>
-      <button class="digit" onclick="digitMove(-3)">-3 цифры</button>
-
-      <button class="digit" onclick="digitMove(5)">+5 цифр</button>
-      <button class="digit" onclick="digitMove(-5)">-5 цифр</button>
-
-      <button class="digit" onclick="digitMove(10)">+10 цифр</button>
-      <button class="digit" onclick="digitMove(-10)">-10 цифр</button>
-    </div>
-    <div class="small">Эти кнопки крутят только мотор счетчика.</div>
+    <div class="small">Диск следует за счетчиком: 1 шаг диска на каждые 4 шага счетчика. Отдельно диск можно крутить только в нижнем блоке.</div>
   </div>
 
   <div class="card">
     <h2>Статус</h2>
     <div id="status" class="status-box">Загрузка статуса...</div>
+  </div>
+
+  <div class="card">
+    <h2>Прокрутка счетчика</h2>
+    <div class="buttons">
+      <button class="neg large-btn" onclick="digitMove(-1)">-1</button>
+      <button class="pos large-btn" onclick="digitMove(1)">+1</button>
+      <button class="neg large-btn" onclick="digitMove(-10)">-10</button>
+      <button class="pos large-btn" onclick="digitMove(10)">+10</button>
+      <button class="neg" onclick="rotateCounterTurns(-0.1)">-1/10</button>
+      <button class="pos" onclick="rotateCounterTurns(0.1)">+1/10</button>
+      <button class="neg" onclick="rotateCounterTurns(-0.25)">-1/4</button>
+      <button class="pos" onclick="rotateCounterTurns(0.25)">+1/4</button>
+    </div>
+    <div class="small">Этот блок крутит счетчик. Если включен чекбокс "Диск", диск сопровождает движение счетчика.</div>
+  </div>
+
+  <div class="card">
+    <h2>Отдельное вращение диска</h2>
+    <div class="buttons">
+      <button class="forward" onclick="rotateDiskTurns(10)">Диск вперед 10</button>
+      <button class="backward" onclick="rotateDiskTurns(-10)">Диск назад 10</button>
+      <button class="forward" onclick="rotateDiskTurns(5)">Диск вперед 5</button>
+      <button class="backward" onclick="rotateDiskTurns(-5)">Диск назад 5</button>
+      <button class="forward" onclick="rotateDiskTurns(1)">Диск вперед 1</button>
+      <button class="backward" onclick="rotateDiskTurns(-1)">Диск назад 1</button>
+      <button class="forward" onclick="rotateDiskTurns(0.5)">Диск вперед 1/2</button>
+      <button class="backward" onclick="rotateDiskTurns(-0.5)">Диск назад 1/2</button>
+    </div>
   </div>
 
   <script>
@@ -414,12 +399,30 @@ String htmlPage() {
       }
     }
 
-    async function rotateTurns(turns) {
+    async function rotateCounterTurns(turns) {
       try {
         const payload = getPayload();
         payload.turns = turns;
 
-        const response = await fetch('/rotate', {
+        const response = await fetch('/rotateCounter', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+
+        const text = await response.text();
+        document.getElementById('status').textContent = text;
+      } catch (e) {
+        document.getElementById('status').textContent = 'Ошибка отправки команды: ' + e;
+      }
+    }
+
+    async function rotateDiskTurns(turns) {
+      try {
+        const payload = getPayload();
+        payload.turns = turns;
+
+        const response = await fetch('/rotateDisk', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(payload)
@@ -595,8 +598,13 @@ void applySettingsFromBody(const String& body) {
   rebuildMotors();
 }
 
-void rotateSimultaneous(long steps, bool useCounter, bool useDisk) {
-  if (!useCounter && !useDisk) return;
+// =========================
+// ВРАЩЕНИЕ
+// =========================
+
+// Отдельное вращение диска
+void rotateDiskOnly(long steps) {
+  if (steps == 0) return;
 
   motorsBusy = true;
 
@@ -604,58 +612,85 @@ void rotateSimultaneous(long steps, bool useCounter, bool useDisk) {
   long totalSteps = labs(steps);
   int direction = (steps >= 0) ? 1 : -1;
 
-  statusText = "Моторы крутятся.\n";
+  statusText = "Диск крутится отдельно.\n";
   statusText += "Направление: " + dirText + "\n";
   statusText += "Шагов: " + String(steps) + "\n";
-  statusText += "Моторы: ";
-  if (useCounter) statusText += "[Счетчик] ";
-  if (useDisk) statusText += "[Диск] ";
   Serial.println(statusText);
 
-  long doneCounter = 0;
+  uint32_t lastDiskUs = micros();
   long doneDisk = 0;
 
-  uint32_t lastCounterUs = micros();
-  uint32_t lastDiskUs = micros();
+  while (doneDisk < totalSteps) {
+    uint32_t now = micros();
+    if ((uint32_t)(now - lastDiskUs) >= (uint32_t)motorDisk.getStepIntervalUs()) {
+      motorDisk.singleStep(direction);
+      doneDisk++;
+      lastDiskUs = now;
+    }
+    delayMicroseconds(50);
+  }
 
-  while ((useCounter && doneCounter < totalSteps) || (useDisk && doneDisk < totalSteps)) {
+  motorDisk.release();
+
+  statusText = "Готово: диск прокручен отдельно.\n";
+  statusText += "Сделано шагов: " + String(steps);
+  Serial.println(statusText);
+
+  motorsBusy = false;
+}
+
+// Счетчик ведущий, диск ведомый: 1 шаг диска на каждые 4 шага счетчика
+void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
+  if (counterSteps == 0) return;
+
+  motorsBusy = true;
+
+  String dirText = (counterSteps >= 0) ? "вперед" : "назад";
+  long totalCounterSteps = labs(counterSteps);
+  int direction = (counterSteps >= 0) ? 1 : -1;
+
+  statusText = "Моторы крутятся.\n";
+  statusText += "Направление: " + dirText + "\n";
+  statusText += "Шагов счетчика: " + String(counterSteps) + "\n";
+  statusText += "Моторы: [Счетчик] ";
+  if (useDiskFollower) statusText += "[Диск follows 1/4] ";
+  Serial.println(statusText);
+
+  uint32_t lastCounterUs = micros();
+  long doneCounter = 0;
+  long counterStepsSinceDisk = 0;
+
+  while (doneCounter < totalCounterSteps) {
     uint32_t now = micros();
 
-    if (useCounter && doneCounter < totalSteps) {
-      if ((uint32_t)(now - lastCounterUs) >= (uint32_t)motorCounter.getStepIntervalUs()) {
-        motorCounter.singleStep(direction);
-        doneCounter++;
-        lastCounterUs = now;
-      }
-    }
+    if ((uint32_t)(now - lastCounterUs) >= (uint32_t)motorCounter.getStepIntervalUs()) {
+      motorCounter.singleStep(direction);
+      doneCounter++;
+      counterStepsSinceDisk++;
+      lastCounterUs = now;
 
-    if (useDisk && doneDisk < totalSteps) {
-      if ((uint32_t)(now - lastDiskUs) >= (uint32_t)motorDisk.getStepIntervalUs()) {
+      if (useDiskFollower && counterStepsSinceDisk >= diskFollowRatio) {
         motorDisk.singleStep(direction);
-        doneDisk++;
-        lastDiskUs = now;
+        counterStepsSinceDisk = 0;
       }
     }
 
     delayMicroseconds(50);
   }
 
-  if (useCounter) motorCounter.release();
-  if (useDisk) motorDisk.release();
+  motorCounter.release();
+  if (useDiskFollower) motorDisk.release();
 
   statusText = "Готово.\n";
-  statusText += "Сделано шагов: " + String(steps) + "\n";
-  statusText += "Моторы: ";
-  if (useCounter) statusText += "[Счетчик] ";
-  if (useDisk) statusText += "[Диск] ";
+  statusText += "Сделано шагов счетчика: " + String(counterSteps) + "\n";
+  statusText += "Моторы: [Счетчик] ";
+  if (useDiskFollower) statusText += "[Диск] ";
   Serial.println(statusText);
 
   motorsBusy = false;
 }
 
 void rotateCounterDigit(long steps, int digitCount) {
-  motorsBusy = true;
-
   String dirText = (steps >= 0) ? "вперед" : "назад";
 
   statusText = "Команда выполняется: сдвиг счетчика.\n";
@@ -663,16 +698,18 @@ void rotateCounterDigit(long steps, int digitCount) {
   statusText += "Цифр: " + String(digitCount) + "\n";
   statusText += "Шагов на 1 цифру: " + String(stepsPerDigit) + "\n";
   statusText += "Всего шагов: " + String(steps) + "\n";
+  statusText += "Моторы: [Счетчик] ";
+  if (uiSelection.disk) statusText += "[Диск] ";
   Serial.println(statusText);
 
-  rotateSimultaneous(steps, true, false);
+  rotateCounterWithOptionalDisk(steps, uiSelection.disk);
 
   statusText = "Готово: счетчик сдвинут.\n";
   statusText += "Цифр: " + String(digitCount) + "\n";
-  statusText += "Сделано шагов: " + String(steps);
+  statusText += "Сделано шагов: " + String(steps) + "\n";
+  statusText += "Моторы: [Счетчик] ";
+  if (uiSelection.disk) statusText += "[Диск] ";
   Serial.println(statusText);
-
-  motorsBusy = false;
 }
 
 // =========================
@@ -709,7 +746,7 @@ bool fetchSubscriberCount(long &subscriberCountOut, String &errorText) {
   String payload = http.getString();
   http.end();
 
-  DynamicJsonDocument doc(2048);
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload);
   if (err) {
     errorText = "Ошибка JSON: " + String(err.c_str());
@@ -777,9 +814,7 @@ void processYoutubeUpdate(bool forceNow = false) {
   statusText += "Разница: " + String(diff) + "\n";
   statusText += "Прокрутка шагов: " + String(steps);
 
-  // При изменении подписчиков крутим счетчик всегда.
-  // Диск крутится, только если отмечен чекбокс.
-  rotateSimultaneous(steps, true, uiSelection.disk);
+  rotateCounterWithOptionalDisk(steps, uiSelection.disk);
 
   lastSubscriberCount = newCount;
   youtubeStatus = "YouTube: значение обновлено, моторы прокручены";
@@ -811,7 +846,7 @@ void handleSettings() {
   server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
 }
 
-void handleRotate() {
+void handleRotateCounter() {
   if (motorsBusy || pendingCommand != CMD_NONE) {
     server.send(409, "text/plain; charset=utf-8", makeStatusMessage() + "\nКоманда не принята: моторы заняты.");
     return;
@@ -826,8 +861,8 @@ void handleRotate() {
   applySettingsFromBody(body);
   saveSettings();
 
-  if (!uiSelection.counter && !uiSelection.disk) {
-    statusText = "Команда не выполнена: не выбран ни один мотор.";
+  if (!uiSelection.counter) {
+    statusText = "Команда не выполнена: счетчик выключен чекбоксом.";
     server.send(400, "text/plain; charset=utf-8", makeStatusMessage());
     return;
   }
@@ -842,11 +877,44 @@ void handleRotate() {
   }
 
   queuedCommand.steps = steps;
-  queuedCommand.useCounter = uiSelection.counter;
+  queuedCommand.useCounter = true;
   queuedCommand.useDisk = uiSelection.disk;
   pendingCommand = CMD_ROTATE_SELECTED;
 
   statusText = "Команда принята. Ожидание запуска.\nШагов: " + String(steps);
+  server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
+}
+
+void handleRotateDisk() {
+  if (motorsBusy || pendingCommand != CMD_NONE) {
+    server.send(409, "text/plain; charset=utf-8", makeStatusMessage() + "\nКоманда не принята: моторы заняты.");
+    return;
+  }
+
+  if (!server.hasArg("plain")) {
+    server.send(400, "text/plain; charset=utf-8", "Нет тела запроса.");
+    return;
+  }
+
+  String body = server.arg("plain");
+  applySettingsFromBody(body);
+  saveSettings();
+
+  float turns = parseJsonFloat(body, "turns", 0.0f);
+  long steps = lround(turns * stepsPerRevolution);
+
+  if (steps == 0) {
+    statusText = "Команда не выполнена: шагов получилось 0.";
+    server.send(400, "text/plain; charset=utf-8", makeStatusMessage());
+    return;
+  }
+
+  queuedCommand.steps = steps;
+  queuedCommand.useCounter = false;
+  queuedCommand.useDisk = true;
+  pendingCommand = CMD_ROTATE_SELECTED;
+
+  statusText = "Команда принята: отдельное вращение диска.\nШагов: " + String(steps);
   server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
 }
 
@@ -864,6 +932,12 @@ void handleDigitMove() {
   String body = server.arg("plain");
   applySettingsFromBody(body);
   saveSettings();
+
+  if (!uiSelection.counter) {
+    statusText = "Команда не выполнена: счетчик выключен чекбоксом.";
+    server.send(400, "text/plain; charset=utf-8", makeStatusMessage());
+    return;
+  }
 
   int digitCount = parseJsonInt(body, "digitCount", 0);
 
@@ -920,7 +994,8 @@ void setup() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/settings", HTTP_POST, handleSettings);
-  server.on("/rotate", HTTP_POST, handleRotate);
+  server.on("/rotateCounter", HTTP_POST, handleRotateCounter);
+  server.on("/rotateDisk", HTTP_POST, handleRotateDisk);
   server.on("/digitMove", HTTP_POST, handleDigitMove);
   server.on("/youtubeNow", HTTP_POST, handleYoutubeNow);
 
@@ -936,11 +1011,11 @@ void loop() {
     pendingCommand = CMD_NONE;
 
     if (cmd == CMD_ROTATE_SELECTED) {
-      rotateSimultaneous(
-        queuedCommand.steps,
-        queuedCommand.useCounter,
-        queuedCommand.useDisk
-      );
+      if (queuedCommand.useCounter) {
+        rotateCounterWithOptionalDisk(queuedCommand.steps, queuedCommand.useDisk);
+      } else if (queuedCommand.useDisk) {
+        rotateDiskOnly(queuedCommand.steps);
+      }
     } else if (cmd == CMD_DIGIT_MOVE) {
       rotateCounterDigit((long)stepsPerDigit * (long)queuedDigitCount, queuedDigitCount);
     }

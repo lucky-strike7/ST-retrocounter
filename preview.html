@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>Retro Counter Mobile Prototype</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #232022;
+      --accent: #f39a35;
+      --accent-dim: rgba(243, 154, 53, 0.42);
+      --text: #f39a35;
+      --text-dim: rgba(243, 154, 53, 0.72);
+      --white-flash: rgba(255,255,255,0.95);
+      --font-mono: Consolas, "Courier New", "Lucida Console", Menlo, Monaco, monospace;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html {
+      height: 100%;
+      height: -webkit-fill-available;
+      overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+      height: 100%;
+      min-height: 100%;
+      min-height: -webkit-fill-available;
+      overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: manipulation;
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    .app {
+      width: min(100vw, 430px);
+      height: 100%;
+      max-height: 100%;
+      padding: 22px 18px max(36px, env(safe-area-inset-bottom, 0px));
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 22px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    .top-side {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      min-width: 0;
+    }
+
+    .top-side.right {
+      justify-content: flex-end;
+    }
+
+    .metric-btn, .center-value {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 20px;
+      line-height: 1;
+      padding: 8px 4px;
+      margin: 0;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: inherit;
+    }
+
+    .metric-btn:active, .center-value:active {
+      opacity: 0.7;
+    }
+
+    .icon-btn {
+      width: 48px;
+      height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      color: var(--accent);
+    }
+
+    .icon-btn.inactive {
+      opacity: 1;
+    }
+
+    .icon-counter,
+    .icon-disk {
+      display: block;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    /* Квадрат «ленты»: +15% к базовым 28×28 / кнопка 48 */
+    .icon-counter {
+      width: 32px;
+      height: 32px;
+      box-sizing: border-box;
+      display: flex;
+      align-items: stretch;
+      justify-content: space-between;
+      padding: 6px 5px;
+      gap: 2px;
+    }
+
+    .icon-counter-bar {
+      flex: 1 1 0;
+      min-width: 0;
+      border-radius: 0;
+    }
+
+    .icon-btn:not(.inactive) .icon-counter {
+      background: var(--accent);
+      border: 2px solid var(--accent);
+    }
+
+    .icon-btn:not(.inactive) .icon-counter-bar {
+      background: #000;
+    }
+
+    .icon-btn.inactive .icon-counter {
+      background: transparent;
+      border: 2px solid var(--accent);
+    }
+
+    .icon-btn.inactive .icon-counter-bar {
+      background: var(--accent);
+    }
+
+    .icon-disk {
+      width: 39px;
+      height: 39px;
+      border-radius: 50%;
+      box-sizing: border-box;
+      border: 3px solid var(--accent);
+    }
+
+    .icon-disk::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      margin-left: -3.5px;
+      margin-top: -3.5px;
+      border-radius: 50%;
+    }
+
+    .icon-btn:not(.inactive) .icon-disk {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .icon-btn:not(.inactive) .icon-disk::after {
+      background: #000;
+    }
+
+    .icon-btn.inactive .icon-disk {
+      background: transparent;
+    }
+
+    .icon-btn.inactive .icon-disk::after {
+      background: var(--accent);
+    }
+
+    .status-panel {
+      background: var(--accent);
+      border-radius: 42px;
+      min-height: 210px;
+      padding: 26px 24px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      margin-bottom: 28px;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    .status-text {
+      width: 100%;
+      text-align: center;
+      white-space: pre-line;
+      font-size: 18px;
+      line-height: 1.45;
+      letter-spacing: 0;
+      font-family: inherit;
+      font-weight: inherit;
+      color: #000;
+    }
+
+    .stepper-wrap {
+      position: relative;
+      margin-bottom: 30px;
+      padding-top: 4px;
+    }
+
+    .steps-row {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      align-items: center;
+      text-align: center;
+      gap: 8px;
+      min-height: 72px;
+    }
+
+    .step-highlight {
+      position: absolute;
+      top: 50%;
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      background: var(--accent);
+      transform: translate(-50%, -50%);
+      transition: left 220ms ease;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .step-option {
+      position: relative;
+      z-index: 1;
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 28px;
+      padding: 12px 0;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    .step-option.active {
+      color: #000;
+    }
+
+    .main-controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(170px, 1fr));
+      gap: 18px;
+      align-items: center;
+      justify-items: center;
+    }
+
+    .big-btn {
+      -webkit-appearance: none;
+      appearance: none;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      width: 170px;
+      height: 170px;
+      min-width: 170px;
+      min-height: 170px;
+      max-width: 170px;
+      max-height: 170px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      border: 4px solid var(--accent);
+      background: transparent;
+      color: var(--text);
+      font-size: 68px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+      user-select: none;
+      align-self: center;
+      justify-self: center;
+      overflow: hidden;
+    }
+
+    .big-btn.minus,
+    .big-btn.plus {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .big-btn:active,
+    .big-btn.flash {
+      background: var(--white-flash) !important;
+      color: #000 !important;
+      border: 4px solid #fff !important;
+      outline: none;
+      box-shadow: 0 0 20px rgba(255,255,255,0.35);
+      transform: scale(0.97);
+    }
+
+    .sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 30;
+      transform: translateY(100%);
+      transition: transform 220ms ease;
+    }
+
+    .sheet.open {
+      transform: translateY(0);
+    }
+
+    .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms ease;
+      z-index: 20;
+    }
+
+    .sheet-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .sheet-panel {
+      background: #181818;
+      border-radius: 18px 18px 0 0;
+      padding: 14px 18px 22px;
+      box-shadow: 0 -10px 40px rgba(0,0,0,0.45);
+      max-width: 430px;
+      margin: 0 auto;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .sheet-handle {
+      width: 42px;
+      height: 5px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 999px;
+      margin: 0 auto 14px;
+    }
+
+    .sheet-title {
+      color: #fff;
+      font-size: 18px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .sheet-input {
+      width: 100%;
+      font-size: 26px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: #0f0f0f;
+      color: #fff;
+      outline: none;
+      margin-bottom: 16px;
+    }
+
+    .sheet-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .sheet-btn {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 0;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .sheet-btn.cancel {
+      background: #2b2b2b;
+      color: #fff;
+    }
+
+    .sheet-btn.confirm {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="top-side left">
+        <button class="icon-btn" id="counterIconBtn" aria-label="Счетчик">
+          <span class="icon-counter" aria-hidden="true">
+            <span class="icon-counter-bar"></span>
+            <span class="icon-counter-bar"></span>
+            <span class="icon-counter-bar"></span>
+            <span class="icon-counter-bar"></span>
+          </span>
+        </button>
+        <button class="metric-btn" id="counterRpmBtn">16</button>
+      </div>
+
+      <button class="center-value" id="stepsPerDigitBtn">6600</button>
+
+      <div class="top-side right">
+        <button class="metric-btn" id="diskRpmBtn">5</button>
+        <button class="icon-btn inactive" id="diskIconBtn" aria-label="Диск">
+          <span class="icon-disk"></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="status-panel">
+      <div class="status-text" id="statusText">Подписчики: 58
+YouTube: изменений нет
+Статус: Готово: счетчик сдвинут.
+Цифр: -10
+Сделано шагов: -66000</div>
+    </div>
+
+    <div class="stepper-wrap">
+      <div class="steps-row" id="stepsRow">
+        <div class="step-highlight" id="stepHighlight"></div>
+        <button class="step-option" data-step="0.1">1/10</button>
+        <button class="step-option" data-step="0.25">1/4</button>
+        <button class="step-option active" data-step="1">1</button>
+        <button class="step-option" data-step="10">10</button>
+      </div>
+    </div>
+
+    <div class="main-controls">
+      <button class="big-btn minus" id="minusBtn">−</button>
+      <button class="big-btn plus" id="plusBtn">+</button>
+    </div>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-panel">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="sheetTitle">Изменить значение</div>
+      <input class="sheet-input" id="sheetInput" type="number" inputmode="numeric" />
+      <div class="sheet-actions">
+        <button class="sheet-btn cancel" id="cancelSheetBtn">Отмена</button>
+        <button class="sheet-btn confirm" id="confirmSheetBtn">Применить</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      counterEnabled: true,
+      diskEnabled: false,
+      counterRPM: 16,
+      diskRPM: 5,
+      stepsPerDigit: 6600,
+      selectedStep: 1,
+      subscribers: 58,
+      youtubeStatus: 'изменений нет',
+      lastStatus: 'Готово: счетчик сдвинут.',
+      lastDigits: -10,
+      lastSteps: -66000,
+    };
+
+    const els = {
+      counterIconBtn: document.getElementById('counterIconBtn'),
+      diskIconBtn: document.getElementById('diskIconBtn'),
+      counterRpmBtn: document.getElementById('counterRpmBtn'),
+      diskRpmBtn: document.getElementById('diskRpmBtn'),
+      stepsPerDigitBtn: document.getElementById('stepsPerDigitBtn'),
+      statusText: document.getElementById('statusText'),
+      stepsRow: document.getElementById('stepsRow'),
+      stepHighlight: document.getElementById('stepHighlight'),
+      stepOptions: Array.from(document.querySelectorAll('.step-option')),
+      minusBtn: document.getElementById('minusBtn'),
+      plusBtn: document.getElementById('plusBtn'),
+      sheet: document.getElementById('sheet'),
+      sheetBackdrop: document.getElementById('sheetBackdrop'),
+      sheetTitle: document.getElementById('sheetTitle'),
+      sheetInput: document.getElementById('sheetInput'),
+      cancelSheetBtn: document.getElementById('cancelSheetBtn'),
+      confirmSheetBtn: document.getElementById('confirmSheetBtn')
+    };
+
+    let currentEditKey = null;
+
+    function render() {
+      els.counterIconBtn.classList.toggle('inactive', !state.counterEnabled);
+      els.diskIconBtn.classList.toggle('inactive', !state.diskEnabled);
+
+      els.counterRpmBtn.textContent = String(state.counterRPM);
+      els.diskRpmBtn.textContent = String(state.diskRPM);
+      els.stepsPerDigitBtn.textContent = String(state.stepsPerDigit);
+
+      els.statusText.textContent =
+`Подписчики: ${state.subscribers}
+YouTube: ${state.youtubeStatus}
+Статус: ${state.lastStatus}
+Цифр: ${state.lastDigits}
+Сделано шагов: ${state.lastSteps}`;
+
+      els.stepOptions.forEach((btn) => {
+        const active = Number(btn.dataset.step) === state.selectedStep;
+        btn.classList.toggle('active', active);
+      });
+
+      requestAnimationFrame(positionHighlight);
+    }
+
+    function positionHighlight() {
+      const active = els.stepOptions.find(btn => Number(btn.dataset.step) === state.selectedStep);
+      if (!active) return;
+      const rowRect = els.stepsRow.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      const center = (activeRect.left - rowRect.left) + activeRect.width / 2;
+      els.stepHighlight.style.left = `${center}px`;
+    }
+
+    function openSheet(title, key, value) {
+      currentEditKey = key;
+      els.sheetTitle.textContent = title;
+      els.sheetInput.value = value;
+      els.sheet.classList.add('open');
+      els.sheetBackdrop.classList.add('open');
+      setTimeout(() => {
+        els.sheetInput.focus();
+        els.sheetInput.select();
+      }, 50);
+    }
+
+    function closeSheet() {
+      currentEditKey = null;
+      els.sheet.classList.remove('open');
+      els.sheetBackdrop.classList.remove('open');
+    }
+
+    function applySheetValue() {
+      const value = parseInt(els.sheetInput.value, 10);
+      if (!Number.isFinite(value) || value <= 0 || !currentEditKey) {
+        closeSheet();
+        return;
+      }
+      state[currentEditKey] = value;
+      state.lastStatus = 'Параметр обновлён.';
+      state.lastDigits = '—';
+      state.lastSteps = '—';
+      render();
+      closeSheet();
+    }
+
+    function flashButton(btn) {
+      btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 160);
+    }
+
+    function moveCounter(direction) {
+      const step = state.selectedStep;
+      const digits = direction * step;
+      const steps = Math.round(state.stepsPerDigit * digits);
+
+      state.lastStatus = 'Ручная коррекция счетчика.';
+      state.lastDigits = digits;
+      state.lastSteps = steps;
+      render();
+    }
+
+    els.counterIconBtn.addEventListener('click', () => {
+      state.counterEnabled = !state.counterEnabled;
+      render();
+    });
+
+    els.diskIconBtn.addEventListener('click', () => {
+      state.diskEnabled = !state.diskEnabled;
+      render();
+    });
+
+    els.counterRpmBtn.addEventListener('click', () => openSheet('Скорость счетчика (RPM)', 'counterRPM', state.counterRPM));
+    els.diskRpmBtn.addEventListener('click', () => openSheet('Скорость диска (RPM)', 'diskRPM', state.diskRPM));
+    els.stepsPerDigitBtn.addEventListener('click', () => openSheet('Шагов на 1 цифру', 'stepsPerDigit', state.stepsPerDigit));
+
+    els.stepOptions.forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.selectedStep = Number(btn.dataset.step);
+        render();
+      });
+    });
+
+    els.minusBtn.addEventListener('click', () => {
+      flashButton(els.minusBtn);
+      moveCounter(-1);
+    });
+
+    els.plusBtn.addEventListener('click', () => {
+      flashButton(els.plusBtn);
+      moveCounter(1);
+    });
+
+    els.sheetBackdrop.addEventListener('click', closeSheet);
+    els.cancelSheetBtn.addEventListener('click', closeSheet);
+    els.confirmSheetBtn.addEventListener('click', applySheetValue);
+    els.sheetInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') applySheetValue();
+      if (e.key === 'Escape') closeSheet();
+    });
+
+    window.addEventListener('resize', positionHighlight);
+
+    render();
+  </script>
+</body>
+</html>
