@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>Retro Counter Mobile</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="top-side left">
+        <button class="icon-btn" id="counterIconBtn" aria-label="Счетчик">
+          <span class="icon-counter" aria-hidden="true">
+            <span class="icon-counter-bar"></span>
+            <span class="icon-counter-bar"></span>
+            <span class="icon-counter-bar"></span>
+            <span class="icon-counter-bar"></span>
+          </span>
+        </button>
+        <button class="metric-btn" id="counterRpmBtn">16</button>
+      </div>
+
+      <button class="center-value" id="stepsPerDigitBtn">6600</button>
+
+      <div class="top-side right">
+        <button class="metric-btn" id="diskRpmBtn">5</button>
+        <button class="icon-btn inactive" id="diskIconBtn" aria-label="Диск">
+          <span class="icon-disk"></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="status-panel">
+      <div class="status-text" id="statusText">Загрузка…</div>
+    </div>
+
+    <div class="stepper-wrap">
+      <div class="steps-row" id="stepsRow">
+        <div class="step-highlight" id="stepHighlight"></div>
+        <button class="step-option" data-step="0.1">1/10</button>
+        <button class="step-option" data-step="0.25">1/4</button>
+        <button class="step-option active" data-step="1">1</button>
+        <button class="step-option" data-step="10">10</button>
+      </div>
+    </div>
+
+    <div class="main-controls">
+      <button class="big-btn minus" id="minusBtn">−</button>
+      <button class="big-btn plus" id="plusBtn">+</button>
+    </div>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-panel">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title" id="sheetTitle">Изменить значение</div>
+      <input class="sheet-input" id="sheetInput" type="number" inputmode="numeric" />
+      <div class="sheet-actions">
+        <button class="sheet-btn cancel" id="cancelSheetBtn">Отмена</button>
+        <button class="sheet-btn confirm" id="confirmSheetBtn">Применить</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>

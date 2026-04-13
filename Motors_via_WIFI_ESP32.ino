@@ -5,6 +5,12 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <math.h>
+#include <FS.h>
+#include <LittleFS.h>
+#include <SPIFFS.h>
+
+// 0 = нет, 1 = LittleFS, 2 = SPIFFS (схема разделов «with spiffs» + классическая загрузка data)
+static uint8_t g_dataFs = 0;
 
 // =========================
 // WIFI
@@ -25,12 +31,16 @@ const unsigned long youtubePollIntervalMs = 15000;
 // НАСТРОЙКИ МОТОРОВ
 // =========================
 int stepsPerRevolution = 2048;
-int motorDiskSpeedRPM = 10;
-int motorCounterSpeedRPM = 10;
-int stepsPerDigit = 7000;
+int motorDiskSpeedRPM = 5;
+int motorCounterSpeedRPM = 16;
+int stepsPerDigit = 6600;
 
 // Ведомый диск: 1 шаг диска на каждые 4 шага счетчика
 const int diskFollowRatio = 4;
+
+// Кнопки 1/10 и 1/4: фиксированное число шагов мотора (не от stepsPerDigit)
+const int kStepMoveOneTenth = 150;
+const int kStepMoveOneFourth = 500;
 
 // =========================
 // ПИНЫ
@@ -133,10 +143,18 @@ struct RotateCommand {
 };
 
 RotateCommand queuedCommand;
-int queuedDigitCount = 0;
+float queuedDigitCountFloat = 0.0f;
 
 bool motorsBusy = false;
 String statusText = "Система запущена. Ожидание команды.";
+
+float g_lastMoveDigits = 0.0f;
+long g_lastMoveSteps = 0;
+
+void recordLastMove(float digits, long steps) {
+  g_lastMoveDigits = digits;
+  g_lastMoveSteps = steps;
+}
 
 // =========================
 // YOUTUBE СОСТОЯНИЕ
@@ -153,9 +171,9 @@ void loadSettings() {
   prefs.begin("countercfg", true);
 
   stepsPerRevolution = prefs.getInt("stepsRev", 2048);
-  motorDiskSpeedRPM = prefs.getInt("diskRPM", 10);
-  motorCounterSpeedRPM = prefs.getInt("countRPM", 10);
-  stepsPerDigit = prefs.getInt("stepsDigit", 7168);
+  motorDiskSpeedRPM = prefs.getInt("diskRPM", 5);
+  motorCounterSpeedRPM = prefs.getInt("countRPM", 16);
+  stepsPerDigit = prefs.getInt("stepsDigit", 6600);
 
   uiSelection.counter = prefs.getBool("selCounter", true);
   uiSelection.disk = prefs.getBool("selDisk", false);
@@ -175,315 +193,6 @@ void saveSettings() {
   prefs.putBool("selDisk", uiSelection.disk);
 
   prefs.end();
-}
-
-// =========================
-// HTML
-// =========================
-String htmlPage() {
-  String html = R"rawliteral(
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ESP32 Motor Control</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 1100px;
-      margin: 24px auto;
-      padding: 0 16px;
-      background: #f5f5f5;
-      color: #222;
-    }
-    .card {
-      background: white;
-      border-radius: 14px;
-      padding: 20px;
-      box-shadow: 0 4px 18px rgba(0,0,0,0.08);
-      margin-bottom: 18px;
-    }
-    h1, h2 {
-      margin-top: 0;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 14px;
-    }
-    label {
-      display: block;
-      font-size: 14px;
-      color: #444;
-      margin-bottom: 6px;
-    }
-    input[type="number"] {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      font-size: 16px;
-    }
-    .checks {
-      display: flex;
-      gap: 24px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .checks label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 16px;
-      margin: 0;
-    }
-    .buttons {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 10px;
-      margin-top: 14px;
-    }
-    button {
-      border: 0;
-      border-radius: 10px;
-      padding: 14px 18px;
-      font-size: 16px;
-      cursor: pointer;
-      color: white;
-    }
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    .save { background: #6a1b9a; }
-    .forward, .pos { background: #2e7d32; }
-    .backward, .neg { background: #ef6c00; }
-    .large-btn {
-      font-size: 24px;
-      padding: 18px 20px;
-    }
-    .status-box {
-      background: #111;
-      color: #0f0;
-      border-radius: 10px;
-      padding: 16px;
-      min-height: 180px;
-      white-space: pre-wrap;
-      font-family: Consolas, monospace;
-      font-size: 15px;
-    }
-    .small {
-      color: #666;
-      font-size: 13px;
-      margin-top: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Управление моторами</h1>
-
-    <div class="grid">
-      <div>
-        <label for="stepsPerRevolution">Шагов на оборот</label>
-        <input id="stepsPerRevolution" type="number" min="1" value=")rawliteral";
-  html += String(stepsPerRevolution);
-  html += R"rawliteral(">
-      </div>
-
-      <div>
-        <label for="motorDiskSpeedRPM">Скорость диска (RPM)</label>
-        <input id="motorDiskSpeedRPM" type="number" min="1" value=")rawliteral";
-  html += String(motorDiskSpeedRPM);
-  html += R"rawliteral(">
-      </div>
-
-      <div>
-        <label for="motorCounterSpeedRPM">Скорость счетчика (RPM)</label>
-        <input id="motorCounterSpeedRPM" type="number" min="1" value=")rawliteral";
-  html += String(motorCounterSpeedRPM);
-  html += R"rawliteral(">
-      </div>
-
-      <div>
-        <label for="stepsPerDigit">Шагов на 1 цифру счетчика</label>
-        <input id="stepsPerDigit" type="number" min="1" value=")rawliteral";
-  html += String(stepsPerDigit);
-  html += R"rawliteral(">
-      </div>
-    </div>
-
-    <div class="checks">
-      <label>
-        <input id="checkCounter" type="checkbox" )rawliteral";
-  if (uiSelection.counter) html += "checked";
-  html += R"rawliteral(>
-        Счетчик
-      </label>
-
-      <label>
-        <input id="checkDisk" type="checkbox" )rawliteral";
-  if (uiSelection.disk) html += "checked";
-  html += R"rawliteral(>
-        Диск
-      </label>
-    </div>
-
-    <div class="buttons">
-      <button class="save" onclick="saveSettingsToESP()">Сохранить настройки</button>
-      <button class="save" onclick="pollYoutubeNow()">Обновить YouTube сейчас</button>
-    </div>
-
-    <div class="small">Диск следует за счетчиком: 1 шаг диска на каждые 4 шага счетчика. Отдельно диск можно крутить только в нижнем блоке.</div>
-  </div>
-
-  <div class="card">
-    <h2>Статус</h2>
-    <div id="status" class="status-box">Загрузка статуса...</div>
-  </div>
-
-  <div class="card">
-    <h2>Прокрутка счетчика</h2>
-    <div class="buttons">
-      <button class="neg large-btn" onclick="digitMove(-1)">-1</button>
-      <button class="pos large-btn" onclick="digitMove(1)">+1</button>
-      <button class="neg large-btn" onclick="digitMove(-10)">-10</button>
-      <button class="pos large-btn" onclick="digitMove(10)">+10</button>
-      <button class="neg" onclick="rotateCounterTurns(-0.1)">-1/10</button>
-      <button class="pos" onclick="rotateCounterTurns(0.1)">+1/10</button>
-      <button class="neg" onclick="rotateCounterTurns(-0.25)">-1/4</button>
-      <button class="pos" onclick="rotateCounterTurns(0.25)">+1/4</button>
-    </div>
-    <div class="small">Этот блок крутит счетчик. Если включен чекбокс "Диск", диск сопровождает движение счетчика.</div>
-  </div>
-
-  <div class="card">
-    <h2>Отдельное вращение диска</h2>
-    <div class="buttons">
-      <button class="forward" onclick="rotateDiskTurns(10)">Диск вперед 10</button>
-      <button class="backward" onclick="rotateDiskTurns(-10)">Диск назад 10</button>
-      <button class="forward" onclick="rotateDiskTurns(5)">Диск вперед 5</button>
-      <button class="backward" onclick="rotateDiskTurns(-5)">Диск назад 5</button>
-      <button class="forward" onclick="rotateDiskTurns(1)">Диск вперед 1</button>
-      <button class="backward" onclick="rotateDiskTurns(-1)">Диск назад 1</button>
-      <button class="forward" onclick="rotateDiskTurns(0.5)">Диск вперед 1/2</button>
-      <button class="backward" onclick="rotateDiskTurns(-0.5)">Диск назад 1/2</button>
-    </div>
-  </div>
-
-  <script>
-    function getPayload() {
-      return {
-        stepsPerRevolution: parseInt(document.getElementById('stepsPerRevolution').value, 10),
-        motorDiskSpeedRPM: parseInt(document.getElementById('motorDiskSpeedRPM').value, 10),
-        motorCounterSpeedRPM: parseInt(document.getElementById('motorCounterSpeedRPM').value, 10),
-        stepsPerDigit: parseInt(document.getElementById('stepsPerDigit').value, 10),
-        counter: document.getElementById('checkCounter').checked,
-        disk: document.getElementById('checkDisk').checked
-      };
-    }
-
-    async function saveSettingsToESP() {
-      try {
-        const response = await fetch('/settings', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(getPayload())
-        });
-        const text = await response.text();
-        document.getElementById('status').textContent = text;
-      } catch (e) {
-        document.getElementById('status').textContent = 'Ошибка сохранения: ' + e;
-      }
-    }
-
-    async function rotateCounterTurns(turns) {
-      try {
-        const payload = getPayload();
-        payload.turns = turns;
-
-        const response = await fetch('/rotateCounter', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-
-        const text = await response.text();
-        document.getElementById('status').textContent = text;
-      } catch (e) {
-        document.getElementById('status').textContent = 'Ошибка отправки команды: ' + e;
-      }
-    }
-
-    async function rotateDiskTurns(turns) {
-      try {
-        const payload = getPayload();
-        payload.turns = turns;
-
-        const response = await fetch('/rotateDisk', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-
-        const text = await response.text();
-        document.getElementById('status').textContent = text;
-      } catch (e) {
-        document.getElementById('status').textContent = 'Ошибка отправки команды: ' + e;
-      }
-    }
-
-    async function digitMove(count) {
-      try {
-        const payload = getPayload();
-        payload.digitCount = count;
-
-        const response = await fetch('/digitMove', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-
-        const text = await response.text();
-        document.getElementById('status').textContent = text;
-      } catch (e) {
-        document.getElementById('status').textContent = 'Ошибка отправки команды: ' + e;
-      }
-    }
-
-    async function pollYoutubeNow() {
-      try {
-        const response = await fetch('/youtubeNow', { method: 'POST' });
-        const text = await response.text();
-        document.getElementById('status').textContent = text;
-      } catch (e) {
-        document.getElementById('status').textContent = 'Ошибка запроса YouTube: ' + e;
-      }
-    }
-
-    async function updateStatus() {
-      try {
-        const response = await fetch('/status');
-        const text = await response.text();
-        document.getElementById('status').textContent = text;
-
-        const busy = text.includes('выполняется') || text.includes('крутятся');
-        document.querySelectorAll('button').forEach(btn => btn.disabled = busy);
-      } catch (e) {
-        document.getElementById('status').textContent = 'Ошибка чтения статуса: ' + e;
-      }
-    }
-
-    updateStatus();
-    setInterval(updateStatus, 1000);
-  </script>
-</body>
-</html>
-)rawliteral";
-
-  return html;
 }
 
 // =========================
@@ -636,6 +345,8 @@ void rotateDiskOnly(long steps) {
   statusText += "Сделано шагов: " + String(steps);
   Serial.println(statusText);
 
+  recordLastMove(0.0f, steps);
+
   motorsBusy = false;
 }
 
@@ -690,12 +401,12 @@ void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
   motorsBusy = false;
 }
 
-void rotateCounterDigit(long steps, int digitCount) {
+void rotateCounterDigit(long steps, float digitCountDisplay) {
   String dirText = (steps >= 0) ? "вперед" : "назад";
 
   statusText = "Команда выполняется: сдвиг счетчика.\n";
   statusText += "Направление: " + dirText + "\n";
-  statusText += "Цифр: " + String(digitCount) + "\n";
+  statusText += "Цифр: " + String(digitCountDisplay, 4) + "\n";
   statusText += "Шагов на 1 цифру: " + String(stepsPerDigit) + "\n";
   statusText += "Всего шагов: " + String(steps) + "\n";
   statusText += "Моторы: [Счетчик] ";
@@ -704,8 +415,10 @@ void rotateCounterDigit(long steps, int digitCount) {
 
   rotateCounterWithOptionalDisk(steps, uiSelection.disk);
 
+  recordLastMove(digitCountDisplay, steps);
+
   statusText = "Готово: счетчик сдвинут.\n";
-  statusText += "Цифр: " + String(digitCount) + "\n";
+  statusText += "Цифр: " + String(digitCountDisplay, 4) + "\n";
   statusText += "Сделано шагов: " + String(steps) + "\n";
   statusText += "Моторы: [Счетчик] ";
   if (uiSelection.disk) statusText += "[Диск] ";
@@ -816,6 +529,8 @@ void processYoutubeUpdate(bool forceNow = false) {
 
   rotateCounterWithOptionalDisk(steps, uiSelection.disk);
 
+  recordLastMove((float)diff, steps);
+
   lastSubscriberCount = newCount;
   youtubeStatus = "YouTube: значение обновлено, моторы прокручены";
   Serial.println(youtubeStatus);
@@ -824,8 +539,69 @@ void processYoutubeUpdate(bool forceNow = false) {
 // =========================
 // HTTP HANDLERS
 // =========================
-void handleRoot() {
-  server.send(200, "text/html; charset=utf-8", htmlPage());
+static File openDataFile(const char* path) {
+  if (g_dataFs == 1) return LittleFS.open(path, "r");
+  if (g_dataFs == 2) return SPIFFS.open(path, "r");
+  return File();
+}
+
+static bool streamDataFile(const char* path, const char* mime) {
+  File f = openDataFile(path);
+  if (!f) return false;
+  server.streamFile(f, mime);
+  f.close();
+  return true;
+}
+
+void handleNewRoot() {
+  File f = openDataFile("/index.html");
+  if (!f) {
+    f = openDataFile("/preview.html");
+  }
+  if (!f) {
+    server.send(
+      500, "text/plain; charset=utf-8",
+      "Нет index.html в файловой системе.\r\n"
+      "1) Папка data/: index.html, style.css, script.js\r\n"
+      "2) Arduino: Инструменты -> ESP32 Sketch Data Upload (или Upload SPIFFS)\r\n"
+      "3) При схеме \"with spiffs\" данные часто в SPIFFS — прошивка поддерживает и SPIFFS, и LittleFS.\r\n"
+      "4) После загрузки data перезагрузите ESP.");
+    return;
+  }
+  server.streamFile(f, "text/html; charset=utf-8");
+  f.close();
+}
+
+void handleStyleCss() {
+  if (!streamDataFile("/style.css", "text/css; charset=utf-8")) {
+    server.send(404, "text/plain; charset=utf-8", "style.css not found");
+  }
+}
+
+void handleScriptJs() {
+  if (!streamDataFile("/script.js", "application/javascript; charset=utf-8")) {
+    server.send(404, "text/plain; charset=utf-8", "script.js not found");
+  }
+}
+
+void handleApiState() {
+  JsonDocument doc;
+  doc["busy"] = motorsBusy || (pendingCommand != CMD_NONE);
+  doc["counterEnabled"] = uiSelection.counter;
+  doc["diskEnabled"] = uiSelection.disk;
+  doc["motorCounterSpeedRPM"] = motorCounterSpeedRPM;
+  doc["motorDiskSpeedRPM"] = motorDiskSpeedRPM;
+  doc["stepsPerDigit"] = stepsPerDigit;
+  doc["stepsPerRevolution"] = stepsPerRevolution;
+  doc["subscribers"] = currentSubscriberCount;
+  doc["youtubeLine"] = youtubeStatus;
+  doc["statusLine"] = statusText;
+  doc["lastDigits"] = g_lastMoveDigits;
+  doc["lastSteps"] = g_lastMoveSteps;
+
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json; charset=utf-8", json);
 }
 
 void handleStatus() {
@@ -939,19 +715,19 @@ void handleDigitMove() {
     return;
   }
 
-  int digitCount = parseJsonInt(body, "digitCount", 0);
+  float digitCountF = parseJsonFloat(body, "digitCount", 0.0f);
 
-  if (digitCount == 0) {
+  if (fabs((double)digitCountF) < 1e-6) {
     statusText = "Команда не выполнена: digitCount = 0.";
     server.send(400, "text/plain; charset=utf-8", makeStatusMessage());
     return;
   }
 
-  queuedDigitCount = digitCount;
+  queuedDigitCountFloat = digitCountF;
   pendingCommand = CMD_DIGIT_MOVE;
 
   statusText = "Команда принята: сдвиг счетчика.\n";
-  statusText += "Цифр: " + String(digitCount);
+  statusText += "Цифр: " + String(digitCountF, 4);
   server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
 }
 
@@ -963,6 +739,14 @@ void handleYoutubeNow() {
 
   processYoutubeUpdate(true);
   server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
+}
+
+static long computeDigitMoveSteps(float digitCountF) {
+  const double mag = fabs((double)digitCountF);
+  const int sgn = (digitCountF >= 0.0f) ? 1 : -1;
+  if (fabs(mag - 0.1) < 0.001) return (long)kStepMoveOneTenth * sgn;
+  if (fabs(mag - 0.25) < 0.001) return (long)kStepMoveOneFourth * sgn;
+  return (long)lround((double)stepsPerDigit * (double)digitCountF);
 }
 
 // =========================
@@ -991,7 +775,31 @@ void setup() {
 
   statusText = "Wi-Fi подключен. Веб-интерфейс готов.";
 
-  server.on("/", HTTP_GET, handleRoot);
+  g_dataFs = 0;
+  if (LittleFS.begin(false)) {
+    g_dataFs = 1;
+    Serial.println("[FS] LittleFS смонтирован.");
+  } else if (SPIFFS.begin(false)) {
+    g_dataFs = 2;
+    Serial.println("[FS] SPIFFS смонтирован (часто при Partition Scheme \"with spiffs\").");
+  } else {
+    Serial.println("[FS] Не удалось смонтировать LittleFS или SPIFFS (begin false).");
+    Serial.println("[FS] Проверьте схему разделов; при первой настройке может понадобиться загрузить скетч с однократным SPIFFS.format() в setup — см. документацию.");
+  }
+  if (g_dataFs != 0) {
+    File test = openDataFile("/index.html");
+    if (test) {
+      test.close();
+      Serial.println("[FS] index.html найден.");
+    } else {
+      Serial.println("[FS] index.html не найден — залейте папку data (index.html, style.css, script.js).");
+    }
+  }
+
+  server.on("/", HTTP_GET, handleNewRoot);
+  server.on("/style.css", HTTP_GET, handleStyleCss);
+  server.on("/script.js", HTTP_GET, handleScriptJs);
+  server.on("/api/state", HTTP_GET, handleApiState);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/settings", HTTP_POST, handleSettings);
   server.on("/rotateCounter", HTTP_POST, handleRotateCounter);
@@ -1013,11 +821,13 @@ void loop() {
     if (cmd == CMD_ROTATE_SELECTED) {
       if (queuedCommand.useCounter) {
         rotateCounterWithOptionalDisk(queuedCommand.steps, queuedCommand.useDisk);
+        recordLastMove((float)queuedCommand.steps / (float)max(1, stepsPerDigit), queuedCommand.steps);
       } else if (queuedCommand.useDisk) {
         rotateDiskOnly(queuedCommand.steps);
       }
     } else if (cmd == CMD_DIGIT_MOVE) {
-      rotateCounterDigit((long)stepsPerDigit * (long)queuedDigitCount, queuedDigitCount);
+      long steps = computeDigitMoveSteps(queuedDigitCountFloat);
+      rotateCounterDigit(steps, queuedDigitCountFloat);
     }
   }
 
