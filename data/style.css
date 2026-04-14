@@ -455,15 +455,10 @@ body {
   overflow: hidden;
 }
 
-.big-btn.plus {
+.big-btn.plus,
+.big-btn.minus {
   background: var(--accent);
   color: #000;
-  border-color: var(--accent);
-}
-
-.big-btn.minus {
-  background: transparent;
-  color: var(--accent);
   border-color: var(--accent);
 }
 

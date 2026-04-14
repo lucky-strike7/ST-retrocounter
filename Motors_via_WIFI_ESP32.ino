@@ -330,6 +330,17 @@ void rebuildMotors() {
   motorCounter.setSpeedRPM(motorCounterSpeedRPM);
 }
 
+// Пока моторы крутятся в блокирующем цикле, обрабатываем HTTP — иначе /api/state
+// не отвечает до конца движения и веб-интерфейс не видит busy/activeSteps.
+static void pumpWebWhileStepping(uint32_t &lastWebMs) {
+  uint32_t m = millis();
+  if (m - lastWebMs >= 25) {
+    lastWebMs = m;
+    server.handleClient();
+    yield();
+  }
+}
+
 void applySettingsFromBody(const String& body) {
   int newSteps = parseJsonInt(body, "stepsPerRevolution", stepsPerRevolution);
   int newDiskRPM = parseJsonInt(body, "motorDiskSpeedRPM", motorDiskSpeedRPM);
@@ -372,6 +383,7 @@ void rotateDiskOnly(long steps) {
 
   uint32_t lastDiskUs = micros();
   long doneDisk = 0;
+  uint32_t lastWebMs = millis();
 
   while (doneDisk < totalSteps) {
     uint32_t now = micros();
@@ -381,6 +393,7 @@ void rotateDiskOnly(long steps) {
       lastDiskUs = now;
     }
     delayMicroseconds(50);
+    pumpWebWhileStepping(lastWebMs);
   }
 
   motorDisk.release();
@@ -417,6 +430,7 @@ void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
   uint32_t lastCounterUs = micros();
   long doneCounter = 0;
   long counterStepsSinceDisk = 0;
+  uint32_t lastWebMs = millis();
 
   while (doneCounter < totalCounterSteps) {
     uint32_t now = micros();
@@ -434,6 +448,7 @@ void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
     }
 
     delayMicroseconds(50);
+    pumpWebWhileStepping(lastWebMs);
   }
 
   motorCounter.release();
