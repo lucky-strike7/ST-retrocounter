@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# Wi‑Fi и заголовок из .env (не в репозитории)
+.env
+secrets.h

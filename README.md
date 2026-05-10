@@ -4,9 +4,27 @@
 
 Репозиторий на GitHub: [lucky-strike7/ST-retrocounrter](https://github.com/lucky-strike7/ST-retrocounrter).
 
+## Wi‑Fi: `.env` и `secrets.h`
+
+Имя сети и пароль **не хранятся в репозитории**.
+
+1. Скопируйте `.env.example` в файл **`.env`** в корне проекта (рядом со скетчем).
+2. Укажите в `.env` свои `WIFI_SSID` и `WIFI_PASSWORD`.
+3. Выполните:
+
+```bash
+python gen_secrets_from_env.py
+```
+
+Будет создан **`secrets.h`** (он в `.gitignore`, в Git не попадает). Дальше соберите скетч в Arduino IDE как обычно.
+
+Альтернатива без Python: скопируйте `secrets.example.h` → `secrets.h` и отредактируйте макросы вручную.
+
+**Безопасность:** если старый пароль когда‑либо попал в историю коммитов на GitHub, лучше **сменить пароль Wi‑Fi** в роутере; одного удаления из текущей версии файлов для старых коммитов недостаточно.
+
 ## Как зайти в интерфейс
 
-1. В скетче укажите `ssid` и `password` своей Wi‑Fi сети.
+1. Убедитесь, что Wi‑Fi настроен через `.env` / `secrets.h`, как выше.
 2. Загрузите прошивку и при необходимости файлы из папки `data/` (LittleFS / SPIFFS — как настроена схема разделов в Arduino IDE).
 3. В браузере откройте:
    - **по mDNS:** [http://ST-retrocounter.local](http://ST-retrocounter.local)  

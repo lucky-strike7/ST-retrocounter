@@ -8,14 +8,14 @@
 #include <LittleFS.h>
 #include <SPIFFS.h>
 
-// 0 = нет, 1 = LittleFS, 2 = SPIFFS (схема разделов «with spiffs» + классическая загрузка data)
-static uint8_t g_dataFs = 0;
+#include "secrets.h"
 
 // =========================
-// WIFI
+// WIFI — SSID и пароль задаются в .env → secrets.h (см. README)
 // =========================
-const char* ssid = "MTS_GPON_51C3";
-const char* password = "fHYT7ekA";
+
+// 0 = нет, 1 = LittleFS, 2 = SPIFFS (схема разделов «with spiffs» + классическая загрузка data)
+static uint8_t g_dataFs = 0;
 
 // =========================
 // НАСТРОЙКИ МОТОРОВ
@@ -772,7 +772,7 @@ void setup() {
 
   Serial.println("Подключение к Wi-Fi...");
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
