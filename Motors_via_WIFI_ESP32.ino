@@ -1,11 +1,9 @@
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <Preferences.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <math.h>
-#include <time.h>
 #include <FS.h>
 #include <LittleFS.h>
 #include <SPIFFS.h>
@@ -20,15 +18,6 @@ const char* ssid = "MTS_GPON_51C3";
 const char* password = "fHYT7ekA";
 
 // =========================
-// YOUTUBE API
-// =========================
-const char* youtubeApiKey = "AIzaSyDc2sUfupIQBQKyaFiPDEuVgL0OBwYyAZo";
-const char* youtubeChannelId = "UCFKBfVnPza1Xp8ymEwR-qzg";
-
-// Интервал опроса YouTube
-const unsigned long youtubePollIntervalMs = 15000;
-
-// =========================
 // НАСТРОЙКИ МОТОРОВ
 // =========================
 int stepsPerRevolution = 2048;
@@ -36,8 +25,7 @@ int motorDiskSpeedRPM = 5;
 int motorCounterSpeedRPM = 16;
 int stepsPerDigit = 6600;
 
-// Ведомый диск: 1 шаг диска на каждые 4 шага счетчика
-const int diskFollowRatio = 4;
+// Ведомый диск: за stepsPerDigit шагов счётчика — ровно stepsPerRevolution шагов диска (1 оборот диска на 1 цифру)
 
 // Кнопки 1/10 и 1/4: фиксированное число шагов мотора (не от stepsPerDigit)
 const int kStepMoveOneTenth = 150;
@@ -48,6 +36,10 @@ const int kStepMoveOneFourth = 500;
 // =========================
 const int diskPins[4] = {5, 18, 19, 21};
 const int counterPins[4] = {14, 27, 26, 25};
+
+// «+» в интерфейсе крутит назад, «−» вперёд — чаще всего другой порядок 4 проводов на ULN2003,
+// а не «перепутаны GPIO». true инвертирует направление шагов счётчика (и диска-ведома при связке).
+const bool invertCounterMotorDirection = true;
 
 // =========================
 // УПРАВЛЕНИЕ МОТОРАМИ
@@ -158,34 +150,19 @@ void recordLastMove(float digits, long steps) {
 }
 
 // =========================
-// YOUTUBE СОСТОЯНИЕ
+// ЗНАЧЕНИЕ СЧЁТЧИКА (источник данных — ваш модуль)
 // =========================
-unsigned long lastYoutubePollMs = 0;
-long lastSubscriberCount = -1;
-long currentSubscriberCount = -1;
-String youtubeStatus = "YouTube: ожидание первого запроса";
-time_t lastYoutubeSuccessEpoch = 0;
+// g_logicCounter — логическое значение (double: учитываются дробные шаги 1/10 и 1/4 из веба).
+// NAN до первого notifyCounterValue(). Тогда первый вызов только задаёт базу без прокрутки.
+static double g_logicCounter = NAN;
+long currentCounterValue = -1;
+String dataSourceStatus;
 
 // Текущее движение (для UI: вращение риски)
 static long g_activeMoveSteps = 0;
 static float g_activeDigitCount = 0.0f;
 
 static long computeDigitMoveSteps(float digitCountF);
-
-static void syncTimeNtp() {
-  configTime(3 * 3600, 0, "pool.ntp.org", "time.google.com");
-  struct tm ti;
-  int n = 0;
-  while (n < 40 && !getLocalTime(&ti)) {
-    delay(250);
-    n++;
-  }
-  if (n < 40) {
-    Serial.println("[NTP] Время синхронизировано.");
-  } else {
-    Serial.println("[NTP] Не удалось получить время (проверьте сеть).");
-  }
-}
 
 static long computeActiveStepsForApi() {
   if (motorsBusy) return g_activeMoveSteps;
@@ -259,11 +236,13 @@ String makeStatusMessage() {
   if (uiSelection.disk) msg += "[Диск] ";
   if (!uiSelection.counter && !uiSelection.disk) msg += "[ничего]";
   msg += "\n";
-  msg += "Подписчики: ";
-  msg += (currentSubscriberCount >= 0 ? String(currentSubscriberCount) : String("неизвестно"));
+  msg += "Текущее значение: ";
+  msg += (currentCounterValue >= 0 ? String(currentCounterValue) : String("не задано"));
   msg += "\n";
-  msg += youtubeStatus;
-  msg += "\n";
+  if (dataSourceStatus.length() > 0) {
+    msg += dataSourceStatus;
+    msg += "\n";
+  }
   msg += "Статус: " + statusText;
   return msg;
 }
@@ -419,31 +398,36 @@ void rotateCounterWithOptionalDisk(long counterSteps, bool useDiskFollower) {
   String dirText = (counterSteps >= 0) ? "вперед" : "назад";
   long totalCounterSteps = labs(counterSteps);
   int direction = (counterSteps >= 0) ? 1 : -1;
+  const int stepDir = invertCounterMotorDirection ? -direction : direction;
 
   statusText = "Моторы крутятся.\n";
   statusText += "Направление: " + dirText + "\n";
   statusText += "Шагов счетчика: " + String(counterSteps) + "\n";
   statusText += "Моторы: [Счетчик] ";
-  if (useDiskFollower) statusText += "[Диск follows 1/4] ";
+  if (useDiskFollower) statusText += "[Диск 1 об/цифру] ";
   Serial.println(statusText);
 
   uint32_t lastCounterUs = micros();
   long doneCounter = 0;
-  long counterStepsSinceDisk = 0;
+  long diskStepAccum = 0;
+  const int spdFollow = max(1, stepsPerDigit);
+  const int sprFollow = max(1, stepsPerRevolution);
   uint32_t lastWebMs = millis();
 
   while (doneCounter < totalCounterSteps) {
     uint32_t now = micros();
 
     if ((uint32_t)(now - lastCounterUs) >= (uint32_t)motorCounter.getStepIntervalUs()) {
-      motorCounter.singleStep(direction);
+      motorCounter.singleStep(stepDir);
       doneCounter++;
-      counterStepsSinceDisk++;
       lastCounterUs = now;
 
-      if (useDiskFollower && counterStepsSinceDisk >= diskFollowRatio) {
-        motorDisk.singleStep(direction);
-        counterStepsSinceDisk = 0;
+      if (useDiskFollower) {
+        diskStepAccum += sprFollow;
+        while (diskStepAccum >= spdFollow) {
+          motorDisk.singleStep(stepDir);
+          diskStepAccum -= spdFollow;
+        }
       }
     }
 
@@ -483,6 +467,11 @@ void rotateCounterDigit(long steps, float digitCountDisplay) {
 
   recordLastMove(digitCountDisplay, steps);
 
+  if (!isnan(g_logicCounter)) {
+    g_logicCounter += (double)digitCountDisplay;
+    currentCounterValue = (long)lround(g_logicCounter);
+  }
+
   statusText = "Готово: счетчик сдвинут.\n";
   statusText += "Цифр: " + String(digitCountDisplay, 4) + "\n";
   statusText += "Сделано шагов: " + String(steps) + "\n";
@@ -492,120 +481,55 @@ void rotateCounterDigit(long steps, float digitCountDisplay) {
 }
 
 // =========================
-// YOUTUBE
+// ИНТЕГРАЦИЯ: новое значение счётчика с вашего источника
 // =========================
-bool fetchSubscriberCount(long &subscriberCountOut, String &errorText) {
-  if (WiFi.status() != WL_CONNECTED) {
-    errorText = "Wi-Fi не подключен";
-    return false;
-  }
-
-  String url = "https://www.googleapis.com/youtube/v3/channels?part=statistics&id=";
-  url += youtubeChannelId;
-  url += "&fields=items/statistics/subscriberCount";
-  url += "&key=";
-  url += youtubeApiKey;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  if (!http.begin(client, url)) {
-    errorText = "Не удалось открыть HTTPS соединение";
-    return false;
-  }
-
-  int httpCode = http.GET();
-  if (httpCode != 200) {
-    errorText = "HTTP ошибка: " + String(httpCode);
-    http.end();
-    return false;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    errorText = "Ошибка JSON: " + String(err.c_str());
-    return false;
-  }
-
-  JsonArray items = doc["items"].as<JsonArray>();
-  if (items.isNull() || items.size() == 0) {
-    errorText = "Канал не найден или ответ пустой";
-    return false;
-  }
-
-  const char* countStr = items[0]["statistics"]["subscriberCount"];
-  if (countStr == nullptr) {
-    errorText = "subscriberCount не найден";
-    return false;
-  }
-
-  subscriberCountOut = atol(countStr);
-  return true;
-}
-
-void processYoutubeUpdate(bool forceNow = false) {
-  if (!forceNow) {
-    if (millis() - lastYoutubePollMs < youtubePollIntervalMs) return;
-  }
-
-  if (motorsBusy || pendingCommand != CMD_NONE) return;
-
-  lastYoutubePollMs = millis();
-
-  long newCount = -1;
-  String errorText;
-
-  youtubeStatus = "YouTube: выполняется запрос...";
-  Serial.println(youtubeStatus);
-
-  if (!fetchSubscriberCount(newCount, errorText)) {
-    youtubeStatus = "YouTube: ошибка - " + errorText;
-    Serial.println(youtubeStatus);
+// Первый вызов задаёт базу без движения; далее моторы крутятся на (newValue - база) в единицах «цифр» * stepsPerDigit.
+// Если моторы заняты или в очереди команда из веба — вызов игнорируется (см. Serial).
+void notifyCounterValue(long newValue) {
+  if (motorsBusy || pendingCommand != CMD_NONE) {
+    Serial.println("[counter] notifyCounterValue: пропуск — моторы заняты или очередь команд");
     return;
   }
 
-  time_t wallNow = time(nullptr);
-  if (wallNow > 1700000000) {
-    lastYoutubeSuccessEpoch = wallNow;
-  }
-
-  currentSubscriberCount = newCount;
-  youtubeStatus = "YouTube: получено значение " + String(newCount);
-  Serial.println(youtubeStatus);
-
-  if (lastSubscriberCount < 0) {
-    lastSubscriberCount = newCount;
-    youtubeStatus = "YouTube: первое значение сохранено, без прокрутки";
-    Serial.println(youtubeStatus);
+  if (isnan(g_logicCounter)) {
+    g_logicCounter = (double)newValue;
+    currentCounterValue = newValue;
+    statusText = "Первое значение: " + String(newValue) + " (моторы не крутились).";
+    Serial.println(statusText);
     return;
   }
 
-  long diff = newCount - lastSubscriberCount;
-  if (diff == 0) {
-    youtubeStatus = "YouTube: изменений нет";
-    Serial.println(youtubeStatus);
+  double diffD = (double)newValue - g_logicCounter;
+  if (fabs(diffD) < 1e-6) {
+    g_logicCounter = (double)newValue;
+    currentCounterValue = newValue;
     return;
   }
 
-  long steps = (long)stepsPerDigit * diff;
+  if (!uiSelection.counter) {
+    Serial.println("[counter] notifyCounterValue: счётчик выключен в UI — вызов проигнорирован");
+    return;
+  }
 
-  statusText = "Изменение подписчиков: " + String(lastSubscriberCount) + " -> " + String(newCount) + "\n";
-  statusText += "Разница: " + String(diff) + "\n";
-  statusText += "Прокрутка шагов: " + String(steps);
+  long oldDisp = (long)lround(g_logicCounter);
+  long steps = lround(diffD * (double)stepsPerDigit);
 
-  g_activeDigitCount = (float)diff;
+  statusText = "Данные: " + String(oldDisp) + " -> " + String(newValue) + "\n";
+  statusText += "Разница (цифр): " + String((float)diffD, 4) + "\n";
+  statusText += "Шагов: " + String(steps);
+
+  g_activeDigitCount = (float)diffD;
   rotateCounterWithOptionalDisk(steps, uiSelection.disk);
 
-  recordLastMove((float)diff, steps);
+  recordLastMove((float)diffD, steps);
 
-  lastSubscriberCount = newCount;
-  youtubeStatus = "YouTube: значение обновлено, моторы прокручены";
-  Serial.println(youtubeStatus);
+  g_logicCounter = (double)newValue;
+  currentCounterValue = newValue;
+}
+
+// Строка для подписи в веб-интерфейсе (произвольный текст от вашего модуля, необязательно).
+void setDataSourceStatus(const String& line) {
+  dataSourceStatus = line;
 }
 
 // =========================
@@ -665,24 +589,13 @@ void handleApiState() {
   doc["motorDiskSpeedRPM"] = motorDiskSpeedRPM;
   doc["stepsPerDigit"] = stepsPerDigit;
   doc["stepsPerRevolution"] = stepsPerRevolution;
-  doc["subscribers"] = currentSubscriberCount;
-  doc["youtubeLine"] = youtubeStatus;
+  doc["counterValue"] = currentCounterValue;
+  doc["dataSourceLine"] = dataSourceStatus;
   doc["statusLine"] = statusText;
   doc["lastDigits"] = g_lastMoveDigits;
   doc["lastSteps"] = g_lastMoveSteps;
   doc["activeSteps"] = computeActiveStepsForApi();
   doc["activeDigits"] = activeDigitsForApi();
-  if (lastYoutubeSuccessEpoch > 1700000000) {
-    struct tm* tinfo = localtime(&lastYoutubeSuccessEpoch);
-    char tbuf[16];
-    if (tinfo && strftime(tbuf, sizeof(tbuf), "%H:%M:%S", tinfo) > 0) {
-      doc["lastYoutubeTime"] = tbuf;
-    } else {
-      doc["lastYoutubeTime"] = "";
-    }
-  } else {
-    doc["lastYoutubeTime"] = "";
-  }
 
   String json;
   serializeJson(doc, json);
@@ -816,13 +729,26 @@ void handleDigitMove() {
   server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
 }
 
-void handleYoutubeNow() {
+void handleCounterValuePost() {
   if (motorsBusy || pendingCommand != CMD_NONE) {
     server.send(409, "text/plain; charset=utf-8", makeStatusMessage() + "\nКоманда не принята: моторы заняты.");
     return;
   }
 
-  processYoutubeUpdate(true);
+  if (!server.hasArg("plain")) {
+    server.send(400, "text/plain; charset=utf-8", "Нет тела запроса.");
+    return;
+  }
+
+  String body = server.arg("plain");
+  String vStr = getJsonValue(body, "value");
+  if (vStr.length() == 0) {
+    server.send(400, "text/plain; charset=utf-8", "Ожидается JSON с полем \"value\" (целое число).");
+    return;
+  }
+
+  long v = atol(vStr.c_str());
+  notifyCounterValue(v);
   server.send(200, "text/plain; charset=utf-8", makeStatusMessage());
 }
 
@@ -858,7 +784,13 @@ void setup() {
   Serial.print("IP адрес: ");
   Serial.println(WiFi.localIP());
 
-  syncTimeNtp();
+  // Стабильный доступ по имени в локальной сети (не зависит от смены DHCP IP)
+  if (MDNS.begin("ST-retrocounter")) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.println("mDNS: http://ST-retrocounter.local");
+  } else {
+    Serial.println("mDNS: не удалось запустить");
+  }
 
   statusText = "Wi-Fi подключен. Веб-интерфейс готов.";
 
@@ -892,7 +824,7 @@ void setup() {
   server.on("/rotateCounter", HTTP_POST, handleRotateCounter);
   server.on("/rotateDisk", HTTP_POST, handleRotateDisk);
   server.on("/digitMove", HTTP_POST, handleDigitMove);
-  server.on("/youtubeNow", HTTP_POST, handleYoutubeNow);
+  server.on("/counterValue", HTTP_POST, handleCounterValuePost);
 
   server.begin();
   Serial.println("Веб-сервер запущен.");
@@ -910,6 +842,10 @@ void loop() {
         g_activeDigitCount = (float)queuedCommand.steps / (float)max(1, stepsPerDigit);
         rotateCounterWithOptionalDisk(queuedCommand.steps, queuedCommand.useDisk);
         recordLastMove((float)queuedCommand.steps / (float)max(1, stepsPerDigit), queuedCommand.steps);
+        if (!isnan(g_logicCounter)) {
+          g_logicCounter += (double)queuedCommand.steps / (double)max(1, stepsPerDigit);
+          currentCounterValue = (long)lround(g_logicCounter);
+        }
       } else if (queuedCommand.useDisk) {
         rotateDiskOnly(queuedCommand.steps);
       }
@@ -918,6 +854,4 @@ void loop() {
       rotateCounterDigit(steps, queuedDigitCountFloat);
     }
   }
-
-  processYoutubeUpdate(false);
 }

@@ -7,13 +7,12 @@
   stepsPerDigit: 6600,
   stepsPerRevolution: 2048,
   selectedStep: 1,
-  subscribers: -1,
-  youtubeLine: '',
+  counterValue: -1,
+  dataSourceLine: '',
   statusRaw: '',
   lastDigits: 0,
   lastSteps: 0,
   activeSteps: 0,
-  lastYoutubeTime: '',
   pollError: null,
 };
 
@@ -33,7 +32,7 @@ const els = {
   stepOptions: Array.from(document.querySelectorAll('.step-option')),
   minusBtn: document.getElementById('minusBtn'),
   plusBtn: document.getElementById('plusBtn'),
-  youtubeTime: document.getElementById('youtubeTime'),
+  dataSourceFooter: document.getElementById('dataSourceFooter'),
   sheet: document.getElementById('sheet'),
   sheetBackdrop: document.getElementById('sheetBackdrop'),
   sheetTitle: document.getElementById('sheetTitle'),
@@ -84,13 +83,12 @@ function applyStateFromApi(j) {
   state.diskRPM = Number(j.motorDiskSpeedRPM) || 0;
   state.stepsPerDigit = Number(j.stepsPerDigit) || 0;
   state.stepsPerRevolution = Number(j.stepsPerRevolution) || 2048;
-  state.subscribers = typeof j.subscribers === 'number' ? j.subscribers : -1;
-  state.youtubeLine = j.youtubeLine != null ? String(j.youtubeLine) : '';
+  state.counterValue = typeof j.counterValue === 'number' ? j.counterValue : -1;
+  state.dataSourceLine = j.dataSourceLine != null ? String(j.dataSourceLine) : '';
   state.statusRaw = j.statusLine != null ? String(j.statusLine) : '';
   state.lastDigits = typeof j.lastDigits === 'number' ? j.lastDigits : 0;
   state.lastSteps = typeof j.lastSteps === 'number' ? j.lastSteps : 0;
   state.activeSteps = typeof j.activeSteps === 'number' ? j.activeSteps : 0;
-  state.lastYoutubeTime = j.lastYoutubeTime != null ? String(j.lastYoutubeTime) : '';
   state.pollError = null;
 }
 
@@ -137,7 +135,7 @@ function render() {
   els.diskRpmBtn.textContent = String(state.diskRPM);
   els.stepsPerDigitBtn.textContent = String(state.stepsPerDigit);
 
-  els.dialSubs.textContent = state.subscribers >= 0 ? String(state.subscribers) : '—';
+  els.dialSubs.textContent = state.counterValue >= 0 ? String(state.counterValue) : '—';
 
   if (state.pollError) {
     els.dialLine1.textContent = 'Нет связи';
@@ -153,9 +151,11 @@ function render() {
     els.dialLine2.textContent = '';
   }
 
-  els.youtubeTime.textContent = state.lastYoutubeTime && state.lastYoutubeTime.length
-    ? state.lastYoutubeTime
-    : '—';
+  if (els.dataSourceFooter) {
+    els.dataSourceFooter.textContent = state.dataSourceLine && state.dataSourceLine.length
+      ? state.dataSourceLine
+      : '—';
+  }
 
   if (state.busy && !wasBusy && state.activeSteps) {
     applyDialAnimation(state.activeSteps);

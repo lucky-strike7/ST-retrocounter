@@ -41,14 +41,13 @@ class MockState:
         self.motor_disk_rpm = 5
         self.steps_per_digit = 6600
         self.steps_per_revolution = 2048
-        self.subscribers = 12_345
-        self.youtube_line = "YouTube (mock): превью без ESP32"
+        self.counter_value = 12_345
+        self.data_source_line = "Mock: свой источник данных (без ESP32)"
         self.status_text = "Mock-сервер. Моторы не крутятся."
         self.last_digits = 0.0
         self.last_steps = 0
         self.active_steps = 0
         self.active_digits = 0.0
-        self.last_youtube_time = ""
 
     def apply_settings_body(self, body: dict) -> None:
         if "stepsPerRevolution" in body:
@@ -86,8 +85,8 @@ class MockState:
             f"Скорость счетчика: {self.motor_counter_rpm} RPM\n"
             f"Шагов на 1 цифру: {self.steps_per_digit}\n"
             f"Выбрано: {sel_s}\n"
-            f"Подписчики: {self.subscribers}\n"
-            f"{self.youtube_line}\n"
+            f"Текущее значение: {self.counter_value}\n"
+            f"{self.data_source_line}\n"
             f"Статус: {self.status_text}"
         )
 
@@ -101,14 +100,13 @@ class MockState:
                 "motorDiskSpeedRPM": self.motor_disk_rpm,
                 "stepsPerDigit": self.steps_per_digit,
                 "stepsPerRevolution": self.steps_per_revolution,
-                "subscribers": self.subscribers,
-                "youtubeLine": self.youtube_line,
+                "counterValue": self.counter_value,
+                "dataSourceLine": self.data_source_line,
                 "statusLine": self.status_text,
                 "lastDigits": self.last_digits,
                 "lastSteps": self.last_steps,
                 "activeSteps": self.active_steps,
                 "activeDigits": self.active_digits,
-                "lastYoutubeTime": self.last_youtube_time,
             }
 
     def start_digit_move(self, digit_count: float) -> tuple[bool, str]:
@@ -263,10 +261,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_text("В mock-сервере используйте +/- (digitMove).", 501)
             return
 
-        if self.path.startswith("/youtubeNow"):
+        if self.path.startswith("/counterValue"):
+            if "value" not in body:
+                self.send_text('Ожидается JSON с полем "value" (целое число).', 400)
+                return
+            try:
+                v = int(body["value"])
+            except (TypeError, ValueError):
+                self.send_text("Поле value должно быть целым числом.", 400)
+                return
             with STATE._lock:
-                STATE.last_youtube_time = time.strftime("%H:%M:%S")
-                STATE.youtube_line = "YouTube (mock): ручной опрос"
+                STATE.counter_value = v
+                STATE.data_source_line = f"Mock: notifyCounterValue({v})"
+                STATE.status_text = "Значение обновлено (mock)."
             self.send_text(STATE.make_status_plain())
             return
 
