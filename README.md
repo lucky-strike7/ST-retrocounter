@@ -2,7 +2,7 @@
 
 Прошивка для ретро-счётчика на ESP32: веб-интерфейс в локальной сети, два шаговых мотора 28BYJ-48 (счётчик и диск). **Модуль получения данных из внешнего API или сервиса вы реализуете сами** — в скетче остаётся только точка входа и опциональный HTTP-эндпоинт.
 
-Репозиторий на GitHub: [lucky-strike7/ST-retrocounrter](https://github.com/lucky-strike7/ST-retrocounrter).
+Репозиторий на GitHub: [lucky-strike7/ST-retrocounter](https://github.com/lucky-strike7/ST-retrocounter).
 
 ## Wi‑Fi: `.env` и `secrets.h`
 
